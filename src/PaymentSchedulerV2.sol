@@ -22,15 +22,9 @@ interface ICurvePool {
 /// @notice Core contract for the Circle-wallet-specific payroll app.
 ///         Intended to be deployed once per company (per Circle wallet), not multi-tenant.
 contract PaymentSchedulerV2 is ISchedulerOwnable {
-    address public immutable deployer;
-    address public owner;
-    bool public ownerClaimed;
-
-    event OwnerClaimed(address indexed newOwner);
+    address public immutable owner;
 
     error NotOwner();
-    error AlreadyClaimed();
-    error MustClaimForSelf();
     error ZeroAddress();
 
     modifier onlyOwner() {
@@ -38,32 +32,22 @@ contract PaymentSchedulerV2 is ISchedulerOwnable {
         _;
     }
 
-    constructor(address _deployer, bool _initialOwnerIsFinal) {
-        if (_deployer == address(0)) revert ZeroAddress();
-        deployer = _deployer;
-        owner = _deployer;
-        ownerClaimed = _initialOwnerIsFinal;
-
-        if (_initialOwnerIsFinal) {
-            emit OwnerClaimed(_deployer);
-        }
+    /// @notice Deploys the scheduler with the final owner set immediately.
+    ///         The backend-proxy-deploy + claimOwner() fallback path has been
+    ///         removed: it existed only as a workaround for Circle wallets that
+    ///         could not call the Factory directly, and is no longer needed
+    ///         now that deployment always happens as the user's own transaction.
+    constructor(address _owner) {
+        if (_owner == address(0)) revert ZeroAddress();
+        owner = _owner;
     }
 
-    function claimOwner(address newOwner) external {
-        if (ownerClaimed) revert AlreadyClaimed();
-        if (newOwner == address(0)) revert ZeroAddress();
-        if (msg.sender != newOwner) revert MustClaimForSelf();
-
-        owner = newOwner;
-        ownerClaimed = true;
-
-        emit OwnerClaimed(newOwner);
-    }
-
-    function transferOwner(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
-        emit OwnerClaimed(newOwner);
+    /// @notice Always true. Kept for backward compatibility with ISchedulerOwnable,
+    ///         which SchedulerRegistry relies on to gate registration until
+    ///         ownership was claimed under the old backend-proxy-deploy flow.
+    ///         Since owner is now always final at deploy time, this is always true.
+    function ownerClaimed() external pure returns (bool) {
+        return true;
     }
 
     mapping(address => bool) public isWhitelisted;
@@ -266,7 +250,7 @@ contract PaymentSchedulerV2 is ISchedulerOwnable {
     // --- Execution (payment) logic -------------------------------------------
     address public constant USDC = 0x3600000000000000000000000000000000000000;
     address public constant EURC = 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a;
-    address public constant CURVE_POOL = 0x2D84D79c852f6842ABe0304B70bBAa1506Add457;
+    address public constant CURVE_POOL = 0x2D84D79C852f6842AbE0304b70bBaA1506AdD457;
     int128 public constant USDC_INDEX = 0;
     int128 public constant EURC_INDEX = 1;
 

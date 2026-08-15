@@ -17,7 +17,7 @@ contract PaymentSchedulerV2RecurringAndSwapTest is Test {
 
     address constant USDC_ADDR = 0x3600000000000000000000000000000000000000;
     address constant EURC_ADDR = 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a;
-    address constant CURVE_POOL_ADDR = 0x2D84D79c852f6842ABe0304B70bBAa1506Add457;
+    address constant CURVE_POOL_ADDR = 0x2D84D79C852f6842AbE0304b70bBaA1506AdD457;
 
     function setUp() public {
         // Place mock bytecode at the fixed token addresses.
@@ -39,14 +39,10 @@ contract PaymentSchedulerV2RecurringAndSwapTest is Test {
         vm.store(CURVE_POOL_ADDR, bytes32(uint256(0)), bytes32(uint256(uint160(USDC_ADDR))));
         vm.store(CURVE_POOL_ADDR, bytes32(uint256(1)), bytes32(uint256(uint160(EURC_ADDR))));
         curvePool.setRate(0.92e18);
+        eurc.mint(CURVE_POOL_ADDR, 1_000_000e6); // fund the pool so it can pay out swaps
 
-        vm.prank(backend);
-        scheduler = new PaymentSchedulerV2(backend, false);
-
-        // claimOwner requires msg.sender == newOwner (MustClaimForSelf), so mirror
-        // the real flow: the user themselves calls claimOwner.
         vm.prank(user);
-        scheduler.claimOwner(user);
+        scheduler = new PaymentSchedulerV2(user);
     }
 
     function _whitelistAndFundUser(uint256 usdcAmount) internal {

@@ -23,7 +23,7 @@ contract PayrollFactory {
 
         bytes memory bytecode = abi.encodePacked(
             type(PaymentSchedulerV2).creationCode,
-            abi.encode(msg.sender, true)
+            abi.encode(msg.sender)
         );
 
         assembly {
@@ -41,7 +41,7 @@ contract PayrollFactory {
         bytes32 salt = bytes32(uint256(uint160(expectedDeployer)));
         bytes memory bytecode = abi.encodePacked(
             type(PaymentSchedulerV2).creationCode,
-            abi.encode(expectedDeployer, true)
+            abi.encode(expectedDeployer)
         );
         bytes32 bytecodeHash = keccak256(bytecode);
         predicted = address(uint160(uint256(keccak256(abi.encodePacked(
