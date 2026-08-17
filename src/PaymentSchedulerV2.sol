@@ -219,6 +219,47 @@ contract PaymentSchedulerV2 is ISchedulerOwnable {
         }
     }
 
+    /// @notice Creates recurring schedules in batch with optional per-element EURC auto-swap.
+    ///         Mirrors createRecurringSchedulesForBatch but additionally accepts useEURC and
+    ///         slippageBps per element, so a single batch can mix one-time/recurring and
+    ///         USDC/EURC schedules freely.
+    function createRecurringSchedulesForBatchWithEURC(
+        address[] calldata recipients,
+        uint256[] calldata amounts,
+        uint64[] calldata executeAfters,
+        uint64[] calldata intervalSecondsArr,
+        bool[] calldata useEURCArr,
+        uint16[] calldata slippageBpsArr,
+        bytes32[] calldata requestIds
+    ) external onlyOwner returns (uint256[] memory scheduleIds) {
+        uint256 len = recipients.length;
+        if (
+            amounts.length != len ||
+            executeAfters.length != len ||
+            intervalSecondsArr.length != len ||
+            useEURCArr.length != len ||
+            slippageBpsArr.length != len ||
+            requestIds.length != len
+        ) {
+            revert ArrayLengthMismatch();
+        }
+        if (len > MAX_BATCH_SIZE) revert BatchTooLarge();
+
+        scheduleIds = new uint256[](len);
+        for (uint256 i = 0; i < len; ) {
+            scheduleIds[i] = _createSchedule(
+                recipients[i],
+                amounts[i],
+                executeAfters[i],
+                intervalSecondsArr[i],
+                useEURCArr[i],
+                slippageBpsArr[i],
+                requestIds[i]
+            );
+            unchecked { ++i; }
+        }
+    }
+
     function _createSchedule(
         address recipient,
         uint256 amount,
