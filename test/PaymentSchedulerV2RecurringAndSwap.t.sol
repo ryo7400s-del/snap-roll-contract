@@ -357,4 +357,81 @@ contract PaymentSchedulerV2RecurringAndSwapTest is Test {
             recipients, amounts, executeAfters, intervalSecondsArr, useEURCArr, slippageBpsArr, requestIds
         );
     }
+
+    // ── updateScheduleAmount verification ───────────────────────────────
+
+    function test_UpdateScheduleAmount_AppliesOnNextExecution() public {
+        _whitelistAndFundUser(1000e6);
+
+        vm.prank(user);
+        uint256 scheduleId = scheduler.createRecurringScheduleFor(
+            employee, 100e6, uint64(block.timestamp), 30 days, bytes32("req1")
+        );
+
+        // First execution at the original amount.
+        scheduler.executeSchedule(scheduleId);
+        assertEq(usdc.balanceOf(employee), 100e6, "first execution should use original amount");
+
+        // Raise: bump from 100 to 150 USDC ahead of the next cycle.
+        vm.prank(user);
+        scheduler.updateScheduleAmount(scheduleId, 150e6);
+
+        vm.warp(block.timestamp + 30 days);
+        scheduler.executeSchedule(scheduleId);
+        assertEq(usdc.balanceOf(employee), 250e6, "second execution should use the updated amount");
+
+        PaymentSchedulerV2.Schedule memory s = scheduler.getSchedule(scheduleId);
+        assertEq(s.intervalSeconds, 30 days, "interval must be unchanged by an amount update");
+    }
+
+    function test_UpdateScheduleAmount_AllowsZero() public {
+        _whitelistAndFundUser(1000e6);
+
+        vm.prank(user);
+        uint256 scheduleId = scheduler.createRecurringScheduleFor(
+            employee, 100e6, uint64(block.timestamp), 30 days, bytes32("req1")
+        );
+
+        vm.prank(user);
+        scheduler.updateScheduleAmount(scheduleId, 0);
+
+        PaymentSchedulerV2.Schedule memory s = scheduler.getSchedule(scheduleId);
+        assertEq(s.amount, 0, "zero amount should be allowed, not reverted");
+    }
+
+    function test_UpdateScheduleAmount_RevertsOnOneTimeSchedule() public {
+        _whitelistAndFundUser(1000e6);
+
+        vm.prank(user);
+        uint256 scheduleId = scheduler.createScheduleFor(
+            employee, 100e6, uint64(block.timestamp), bytes32("req1")
+        );
+
+        vm.prank(user);
+        vm.expectRevert(PaymentSchedulerV2.NotRecurring.selector);
+        scheduler.updateScheduleAmount(scheduleId, 200e6);
+    }
+
+    function test_UpdateScheduleAmount_RevertsOnInvalidScheduleId() public {
+        vm.prank(user);
+        vm.expectRevert(PaymentSchedulerV2.InvalidScheduleId.selector);
+        scheduler.updateScheduleAmount(999, 200e6);
+    }
+
+    function test_UpdateScheduleAmount_RevertsWhenPaused() public {
+        _whitelistAndFundUser(1000e6);
+
+        vm.prank(user);
+        uint256 scheduleId = scheduler.createRecurringScheduleFor(
+            employee, 100e6, uint64(block.timestamp), 30 days, bytes32("req1")
+        );
+
+        vm.prank(user);
+        scheduler.toggleSchedule(scheduleId, false);
+
+        vm.prank(user);
+        vm.expectRevert(PaymentSchedulerV2.SchedulePaused.selector);
+        scheduler.updateScheduleAmount(scheduleId, 200e6);
+    }
+
 }

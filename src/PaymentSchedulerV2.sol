@@ -106,6 +106,9 @@ contract PaymentSchedulerV2 is ISchedulerOwnable {
     error BatchTooLarge();
     error SlippageTooHigh();
     error SwapAmountTooLow();
+    error NotRecurring();
+
+    event ScheduleAmountUpdated(uint256 indexed scheduleId, uint256 newAmount);
 
     function createSchedule(
         address recipient,
@@ -258,6 +261,24 @@ contract PaymentSchedulerV2 is ISchedulerOwnable {
             );
             unchecked { ++i; }
         }
+    }
+
+    /// @notice Updates the payment amount of an existing recurring schedule
+    ///         without touching its interval, recipient, or currency
+    ///         settings -- e.g. a raise or pay cut that keeps the same
+    ///         cadence. Only recurring schedules (intervalSeconds > 0) can
+    ///         be updated this way; one-time schedules should be cancelled
+    ///         and recreated instead. A newAmount of 0 is allowed (e.g. to
+    ///         temporarily zero out a payment while keeping the schedule
+    ///         itself active) rather than reverting.
+    function updateScheduleAmount(uint256 scheduleId, uint256 newAmount) external onlyOwner {
+        if (scheduleId >= schedules.length) revert InvalidScheduleId();
+        Schedule storage s = schedules[scheduleId];
+        if (!s.active) revert SchedulePaused();
+        if (s.intervalSeconds == 0) revert NotRecurring();
+
+        s.amount = newAmount;
+        emit ScheduleAmountUpdated(scheduleId, newAmount);
     }
 
     function _createSchedule(
