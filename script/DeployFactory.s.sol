@@ -17,7 +17,8 @@ contract DeployFactory is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        PayrollFactory factory = new PayrollFactory();
+        address verifierAddress = vm.envAddress("VERIFIER_ADDRESS");
+        PayrollFactory factory = new PayrollFactory(verifierAddress);
 
         vm.stopBroadcast();
 
