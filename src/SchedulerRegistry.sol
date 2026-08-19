@@ -4,14 +4,18 @@ pragma solidity ^0.8.24;
 import "./interfaces/ISchedulerOwnable.sol";
 
 /// @title SchedulerRegistry
-/// @notice Circleウォレット（EOA相当）とPaymentSchedulerV2デプロイアドレスの逆引き台帳。
-///         「本当にそのSchedulerのownerであるウォレットだけがregisterできる」ことを保証する。
-/// @dev V1のRegistryとは別コントラクトとして新規デプロイする想定（互換性なし）。
+/// @notice Reverse lookup ledger between a Circle wallet (EOA-equivalent)
+///         and its PaymentSchedulerV2 deployment address. Guarantees that
+///         only the wallet that is genuinely that Scheduler's owner can
+///         register it.
+/// @dev Deployed as a separate contract from any V1 Registry (no
+///      compatibility with it).
 contract SchedulerRegistry {
-    /// @notice Circleウォレットアドレス => そのウォレットが所有するSchedulerV2のアドレス
+    /// @notice Circle wallet address => the SchedulerV2 address it owns.
     mapping(address => address) public schedulerOf;
 
-    /// @notice Schedulerアドレス => 登録した所有者ウォレット（逆引き & 二重登録防止）
+    /// @notice Scheduler address => the owner wallet that registered it
+    ///         (reverse lookup & duplicate-registration prevention).
     mapping(address => address) public ownerOfScheduler;
 
     event Registered(address indexed owner, address indexed scheduler, string name);
@@ -22,20 +26,23 @@ contract SchedulerRegistry {
     error AlreadyRegistered();
     error NotYourRegistration();
 
-    /// @notice Schedulerをこのウォレット名義で登録する。
-    /// @dev 呼び出し元(msg.sender)が対象SchedulerコントラクトのSchedulerV2.owner()と
-    ///      一致していることを必須とする。これにより「他人がデプロイしたSchedulerに
-    ///      勝手に自分を紐付ける」なりすましを防ぐ。
-    /// @param scheduler PaymentSchedulerV2 のコントラクトアドレス
-    /// @param name 表示名（会社名など、UI表示用。オンチェーンでは検証しない）
+    /// @notice Registers a Scheduler under this wallet's name.
+    /// @dev Requires the caller (msg.sender) to match the target Scheduler
+    ///      contract's SchedulerV2.owner(). This prevents impersonation --
+    ///      someone linking themselves to a Scheduler deployed by someone
+    ///      else without authorization.
+    /// @param scheduler The PaymentSchedulerV2 contract address.
+    /// @param name Display name (e.g. company name, for UI display only;
+    ///        not verified on-chain).
     function register(address scheduler, string calldata name) external {
         ISchedulerOwnable target = ISchedulerOwnable(scheduler);
 
-        // Scheduler側でclaimOwner()がまだ実行されていない状態での登録は禁止。
-        // （バックエンドの初期ownerのままRegistryに紐付いてしまう事故を防ぐ）
+        // Registration is disallowed while the Scheduler hasn't had
+        // claimOwner() called yet (prevents accidentally linking the
+        // Registry to the backend's initial placeholder owner).
         if (!target.ownerClaimed()) revert OwnerNotClaimedYet();
 
-        // Scheduler.owner() と msg.sender が一致する場合のみ登録可能。
+        // Only registerable when Scheduler.owner() matches msg.sender.
         if (target.owner() != msg.sender) revert NotSchedulerOwner();
 
         if (schedulerOf[msg.sender] != address(0)) revert AlreadyRegistered();
@@ -47,7 +54,8 @@ contract SchedulerRegistry {
         emit Registered(msg.sender, scheduler, name);
     }
 
-    /// @notice 登録解除（将来的な移行・作り直し用）。自分の登録のみ解除可能。
+    /// @notice Unregisters (for future migration/re-creation). Only the
+    ///         caller's own registration can be removed.
     function unregister() external {
         address scheduler = schedulerOf[msg.sender];
         if (scheduler == address(0)) revert NotYourRegistration();
