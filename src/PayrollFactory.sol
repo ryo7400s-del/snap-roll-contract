@@ -5,9 +5,11 @@ import "./PaymentSchedulerV2.sol";
 import "./EscrowVault.sol";
 
 /// @title PayrollFactory
-/// @notice ① Circleウォレットの contractExecution から呼び出す前提のFactory。
-///         通常デプロイ(toが空のTX)がCircleで失敗する問題を回避するため、
-///         「既存コントラクト(Factory)への関数呼び出し」という形でデプロイを行う。
+/// @notice Factory intended to be called via a Circle wallet's contractExecution.
+///         Circle's contractExecution flow fails for a "plain" deployment
+///         transaction (one with an empty `to` field), so instead we perform
+///         deployment as a regular call into an already-deployed contract
+///         (this Factory), which internally does the CREATE2.
 /// @dev deploy() now provisions both a PaymentSchedulerV2 and an
 ///      EscrowVault per caller, sharing the same CREATE2 salt so both
 ///      addresses are deterministic and independently reproducible via
