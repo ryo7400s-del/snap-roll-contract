@@ -2,7 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "./PaymentSchedulerV2.sol";
-import "./EscrowVault.sol";
+
+interface IEscrowVaultFactory {
+    function deployFor(address deployer, address verifierAddress) external returns (address escrowVault);
+    function computeAddress(address deployer, address verifierAddress) external view returns (address predicted);
+}
 
 /// @title PayrollFactory
 /// @notice Factory intended to be called via a Circle wallet's contractExecution.
@@ -10,14 +14,19 @@ import "./EscrowVault.sol";
 ///         transaction (one with an empty `to` field), so instead we perform
 ///         deployment as a regular call into an already-deployed contract
 ///         (this Factory), which internally does the CREATE2.
-/// @dev deploy() now provisions both a PaymentSchedulerV2 and an
-///      EscrowVault per caller, sharing the same CREATE2 salt so both
-///      addresses are deterministic and independently reproducible via
-///      computeAddress/computeEscrowVaultAddress. The EscrowVault needs a
-///      verifier address at construction time; verifierAddress is stored
-///      here and used for every new deployment, but existing EscrowVaults
-///      are unaffected if it's later changed (each vault has its own
-///      independent setVerifier, see EscrowVault.sol).
+/// @dev deploy() provisions both a PaymentSchedulerV2 (directly, via
+///      CREATE2 in this contract) and an EscrowVault (indirectly, via an
+///      external call to EscrowVaultFactory) per caller, sharing the same
+///      CREATE2 salt in each Factory so both addresses stay deterministic
+///      and independently reproducible via computeAddress /
+///      computeEscrowVaultAddress.
+///
+///      EscrowVault deployment is delegated to a separate
+///      EscrowVaultFactory contract rather than done inline here purely to
+///      stay under the EIP-170 contract size limit -- embedding both
+///      PaymentSchedulerV2's and EscrowVault's full creationCode directly
+///      in this contract pushed it past 24,576 bytes. See
+///      EscrowVaultFactory.sol's NatSpec for more.
 contract PayrollFactory {
     event SchedulerDeployed(address indexed scheduler, address indexed deployer, bytes32 salt);
     event EscrowVaultDeployed(address indexed escrowVault, address indexed deployer, bytes32 salt);
@@ -26,18 +35,19 @@ contract PayrollFactory {
     error DeployFailed();
     error NotFactoryOwner();
     error ZeroAddress();
+    error AlreadyDeployed();
 
     address public factoryOwner;
     address public verifierAddress;
+    IEscrowVaultFactory public immutable escrowVaultFactory;
 
     mapping(address => bool) public hasDeployed;
 
-    error AlreadyDeployed();
-
-    constructor(address _verifierAddress) {
-        if (_verifierAddress == address(0)) revert ZeroAddress();
+    constructor(address _verifierAddress, address _escrowVaultFactory) {
+        if (_verifierAddress == address(0) || _escrowVaultFactory == address(0)) revert ZeroAddress();
         factoryOwner = msg.sender;
         verifierAddress = _verifierAddress;
+        escrowVaultFactory = IEscrowVaultFactory(_escrowVaultFactory);
     }
 
     modifier onlyFactoryOwner() {
@@ -46,10 +56,10 @@ contract PayrollFactory {
     }
 
     /// @notice Lets the Factory owner update which verifier address gets
-    ///         baked into newly-deployed EscrowVaults. Does not retroactively
-    ///         change any already-deployed vault -- each one keeps whatever
-    ///         verifier it was constructed with until its own owner calls
-    ///         setVerifier on it directly.
+    ///         passed to EscrowVaultFactory for newly-deployed EscrowVaults.
+    ///         Does not retroactively change any already-deployed vault --
+    ///         each one keeps whatever verifier it was constructed with
+    ///         until its own owner calls setVerifier on it directly.
     function setVerifierAddress(address newVerifierAddress) external onlyFactoryOwner {
         if (newVerifierAddress == address(0)) revert ZeroAddress();
         verifierAddress = newVerifierAddress;
@@ -70,13 +80,7 @@ contract PayrollFactory {
         }
         if (scheduler == address(0)) revert DeployFailed();
 
-        bytes memory escrowBytecode = abi.encodePacked(
-            type(EscrowVault).creationCode,
-            abi.encode(msg.sender, verifierAddress)
-        );
-        assembly {
-            escrowVault := create2(0, add(escrowBytecode, 0x20), mload(escrowBytecode), salt)
-        }
+        escrowVault = escrowVaultFactory.deployFor(msg.sender, verifierAddress);
         if (escrowVault == address(0)) revert DeployFailed();
 
         hasDeployed[msg.sender] = true;
@@ -98,14 +102,6 @@ contract PayrollFactory {
     }
 
     function computeEscrowVaultAddress(address expectedDeployer) external view returns (address predicted) {
-        bytes32 salt = bytes32(uint256(uint160(expectedDeployer)));
-        bytes memory bytecode = abi.encodePacked(
-            type(EscrowVault).creationCode,
-            abi.encode(expectedDeployer, verifierAddress)
-        );
-        bytes32 bytecodeHash = keccak256(bytecode);
-        predicted = address(uint160(uint256(keccak256(abi.encodePacked(
-            bytes1(0xff), address(this), salt, bytecodeHash
-        )))));
+        return escrowVaultFactory.computeAddress(expectedDeployer, verifierAddress);
     }
 }

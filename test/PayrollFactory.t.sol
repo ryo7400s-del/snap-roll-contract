@@ -5,14 +5,17 @@ import "forge-std/Test.sol";
 import "../src/PayrollFactory.sol";
 import "../src/PaymentSchedulerV2.sol";
 import "../src/EscrowVault.sol";
+import "../src/EscrowVaultFactory.sol";
 
 contract PayrollFactoryTest is Test {
     PayrollFactory factory;
+    EscrowVaultFactory escrowVaultFactory;
     address verifier = address(0xBEEF);
     address deployer = address(0x1234);
 
     function setUp() public {
-        factory = new PayrollFactory(verifier);
+        escrowVaultFactory = new EscrowVaultFactory();
+        factory = new PayrollFactory(verifier, address(escrowVaultFactory));
     }
 
     function test_Deploy_CreatesBothContractsWithCorrectOwnersAndVerifier() public {
@@ -73,6 +76,11 @@ contract PayrollFactoryTest is Test {
 
     function test_Constructor_RevertsOnZeroVerifier() public {
         vm.expectRevert(PayrollFactory.ZeroAddress.selector);
-        new PayrollFactory(address(0));
+        new PayrollFactory(address(0), address(escrowVaultFactory));
+    }
+
+    function test_Constructor_RevertsOnZeroEscrowVaultFactory() public {
+        vm.expectRevert(PayrollFactory.ZeroAddress.selector);
+        new PayrollFactory(verifier, address(0));
     }
 }
