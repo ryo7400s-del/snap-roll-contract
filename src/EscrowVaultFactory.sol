@@ -24,14 +24,18 @@ contract EscrowVaultFactory {
 
     mapping(address => bool) public hasDeployed;
 
-    function deployFor(address deployer, address verifierAddress) external returns (address escrowVault) {
+    function deployFor(
+        address deployer,
+        address verifierAddress,
+        address executorAddress
+    ) external returns (address escrowVault) {
         if (hasDeployed[deployer]) revert AlreadyDeployed();
 
         bytes32 salt = bytes32(uint256(uint160(deployer)));
 
         bytes memory bytecode = abi.encodePacked(
             type(EscrowVault).creationCode,
-            abi.encode(deployer, verifierAddress)
+            abi.encode(deployer, verifierAddress, executorAddress)
         );
 
         assembly {
@@ -45,11 +49,15 @@ contract EscrowVaultFactory {
         emit EscrowVaultDeployed(escrowVault, deployer, salt);
     }
 
-    function computeAddress(address deployer, address verifierAddress) external view returns (address predicted) {
+    function computeAddress(
+        address deployer,
+        address verifierAddress,
+        address executorAddress
+    ) external view returns (address predicted) {
         bytes32 salt = bytes32(uint256(uint160(deployer)));
         bytes memory bytecode = abi.encodePacked(
             type(EscrowVault).creationCode,
-            abi.encode(deployer, verifierAddress)
+            abi.encode(deployer, verifierAddress, executorAddress)
         );
         bytes32 bytecodeHash = keccak256(bytecode);
         predicted = address(uint160(uint256(keccak256(abi.encodePacked(

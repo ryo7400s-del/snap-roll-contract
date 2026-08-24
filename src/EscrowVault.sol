@@ -82,6 +82,7 @@ contract EscrowVault {
 
     address public owner;
     address public verifier;
+    address public executor;
 
     struct Escrow {
         address sender;
@@ -108,8 +109,10 @@ contract EscrowVault {
     event EscrowClaimed(uint256 indexed escrowId, address indexed claimant, uint256 amountSent);
     event EscrowRefunded(uint256 indexed escrowId, address indexed sender, uint256 amount);
     event VerifierUpdated(address indexed newVerifier);
+    event ExecutorUpdated(address indexed newExecutor);
 
     error NotOwner();
+    error NotAuthorized();
     error ZeroAddress();
     error InvalidEscrowId();
     error AlreadyClaimed();
@@ -127,13 +130,39 @@ contract EscrowVault {
         _;
     }
 
-    constructor(address _owner, address _verifier) {
-        if (_owner == address(0) || _verifier == address(0)) revert ZeroAddress();
+    /// @notice Allows either the owner (company) or a designated executor
+    ///         (e.g. the auto-execute.mjs backend job) to call createEscrow.
+    ///         The executor concept mirrors PaymentSchedulerV2's design,
+    ///         where executeSchedule is callable by anyone because the
+    ///         send parameters (recipient, amount) are already fixed by
+    ///         the time it's called. createEscrow is different: it takes
+    ///         recipientEmailHash, amount, etc. as fresh arguments at call
+    ///         time, so letting *anyone* call it (not just a designated
+    ///         executor) would let an attacker spend the owner's USDC
+    ///         allowance on an escrow addressed to an email they control,
+    ///         as long as any allowance remained. Restricting to owner or
+    ///         a specifically-authorized executor closes that gap.
+    modifier onlyOwnerOrExecutor() {
+        if (msg.sender != owner && msg.sender != executor) revert NotAuthorized();
+        _;
+    }
+
+    constructor(address _owner, address _verifier, address _executor) {
+        if (_owner == address(0) || _verifier == address(0) || _executor == address(0)) revert ZeroAddress();
         owner = _owner;
         verifier = _verifier;
+        executor = _executor;
         USDC = 0x3600000000000000000000000000000000000000;
         EURC = 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a;
         CURVE_POOL = 0x2D84D79C852f6842AbE0304b70bBaA1506AdD457;
+    }
+
+    /// @notice Lets the owner rotate the executor address, e.g. if the
+    ///         backend's auto-execute.mjs signer key is replaced.
+    function setExecutor(address newExecutor) external onlyOwner {
+        if (newExecutor == address(0)) revert ZeroAddress();
+        executor = newExecutor;
+        emit ExecutorUpdated(newExecutor);
     }
 
     /// @notice Lets the owner rotate the verifier address, e.g. if the
@@ -160,7 +189,7 @@ contract EscrowVault {
         bool useEURC,
         uint16 slippageBps,
         uint64 expiresAt
-    ) external onlyOwner returns (uint256 escrowId) {
+    ) external onlyOwnerOrExecutor returns (uint256 escrowId) {
         if (useEURC && slippageBps > MAX_SLIPPAGE_BPS) revert SlippageTooHigh();
         if (expiresAt <= block.timestamp) revert ExpiryInPast();
 

@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "./PaymentSchedulerV2.sol";
 
 interface IEscrowVaultFactory {
-    function deployFor(address deployer, address verifierAddress) external returns (address escrowVault);
-    function computeAddress(address deployer, address verifierAddress) external view returns (address predicted);
+    function deployFor(address deployer, address verifierAddress, address executorAddress) external returns (address escrowVault);
+    function computeAddress(address deployer, address verifierAddress, address executorAddress) external view returns (address predicted);
 }
 
 /// @title PayrollFactory
@@ -31,6 +31,7 @@ contract PayrollFactory {
     event SchedulerDeployed(address indexed scheduler, address indexed deployer, bytes32 salt);
     event EscrowVaultDeployed(address indexed escrowVault, address indexed deployer, bytes32 salt);
     event VerifierAddressUpdated(address indexed newVerifierAddress);
+    event ExecutorAddressUpdated(address indexed newExecutorAddress);
 
     error DeployFailed();
     error NotFactoryOwner();
@@ -39,14 +40,20 @@ contract PayrollFactory {
 
     address public factoryOwner;
     address public verifierAddress;
+    address public executorAddress;
     IEscrowVaultFactory public immutable escrowVaultFactory;
 
     mapping(address => bool) public hasDeployed;
 
-    constructor(address _verifierAddress, address _escrowVaultFactory) {
-        if (_verifierAddress == address(0) || _escrowVaultFactory == address(0)) revert ZeroAddress();
+    constructor(address _verifierAddress, address _executorAddress, address _escrowVaultFactory) {
+        if (
+            _verifierAddress == address(0) ||
+            _executorAddress == address(0) ||
+            _escrowVaultFactory == address(0)
+        ) revert ZeroAddress();
         factoryOwner = msg.sender;
         verifierAddress = _verifierAddress;
+        executorAddress = _executorAddress;
         escrowVaultFactory = IEscrowVaultFactory(_escrowVaultFactory);
     }
 
@@ -66,6 +73,17 @@ contract PayrollFactory {
         emit VerifierAddressUpdated(newVerifierAddress);
     }
 
+    /// @notice Lets the Factory owner update which executor address gets
+    ///         passed to EscrowVaultFactory for newly-deployed EscrowVaults.
+    ///         Does not retroactively change any already-deployed vault --
+    ///         each one keeps whatever executor it was constructed with
+    ///         until its own owner calls setExecutor on it directly.
+    function setExecutorAddress(address newExecutorAddress) external onlyFactoryOwner {
+        if (newExecutorAddress == address(0)) revert ZeroAddress();
+        executorAddress = newExecutorAddress;
+        emit ExecutorAddressUpdated(newExecutorAddress);
+    }
+
     function deploy() external returns (address scheduler, address escrowVault) {
         if (hasDeployed[msg.sender]) revert AlreadyDeployed();
 
@@ -80,7 +98,7 @@ contract PayrollFactory {
         }
         if (scheduler == address(0)) revert DeployFailed();
 
-        escrowVault = escrowVaultFactory.deployFor(msg.sender, verifierAddress);
+        escrowVault = escrowVaultFactory.deployFor(msg.sender, verifierAddress, executorAddress);
         if (escrowVault == address(0)) revert DeployFailed();
 
         hasDeployed[msg.sender] = true;
@@ -102,6 +120,6 @@ contract PayrollFactory {
     }
 
     function computeEscrowVaultAddress(address expectedDeployer) external view returns (address predicted) {
-        return escrowVaultFactory.computeAddress(expectedDeployer, verifierAddress);
+        return escrowVaultFactory.computeAddress(expectedDeployer, verifierAddress, executorAddress);
     }
 }

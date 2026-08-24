@@ -25,10 +25,16 @@ import "../src/EscrowVaultFactory.sol";
 ///         unaffected by changes to PaymentSchedulerV2 or PayrollFactory
 ///         itself. Set REDEPLOY_ESCROW_VAULT_FACTORY=true only when
 ///         EscrowVault.sol's own source has changed.
+///
+///         EXECUTOR_ADDRESS should be the address corresponding to
+///         auto-execute.mjs's EXECUTOR_PRIVATE_KEY -- this is what lets
+///         that backend job call EscrowVault.createEscrow on the owner's
+///         behalf (see EscrowVault.sol's onlyOwnerOrExecutor modifier).
 contract DeployFactory is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address verifierAddress = vm.envAddress("VERIFIER_ADDRESS");
+        address executorAddress = vm.envAddress("EXECUTOR_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -43,7 +49,7 @@ contract DeployFactory is Script {
             console.log("Reusing existing EscrowVaultFactory at:", escrowVaultFactoryAddress);
         }
 
-        PayrollFactory factory = new PayrollFactory(verifierAddress, escrowVaultFactoryAddress);
+        PayrollFactory factory = new PayrollFactory(verifierAddress, executorAddress, escrowVaultFactoryAddress);
 
         vm.stopBroadcast();
 

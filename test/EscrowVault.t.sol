@@ -15,6 +15,7 @@ contract EscrowVaultTest is Test {
     address owner = address(0x1111);
     address claimant = address(0x2222);
     address outsider = address(0x3333);
+    address executor = address(0x4444);
 
     uint256 verifierPrivateKey = 0xA11CE;
     address verifier;
@@ -42,7 +43,7 @@ contract EscrowVaultTest is Test {
         eurc.mint(CURVE_POOL_ADDR, 1_000_000e6);
 
         vm.prank(owner);
-        vault = new EscrowVault(owner, verifier);
+        vault = new EscrowVault(owner, verifier, executor);
     }
 
     function _fundOwner(uint256 amount) internal {
@@ -79,11 +80,27 @@ contract EscrowVaultTest is Test {
         assertFalse(e.refunded);
     }
 
-    function test_CreateEscrow_RevertsIfNotOwner() public {
+    function test_CreateEscrow_RevertsIfNotOwnerOrExecutor() public {
         _fundOwner(100e6);
         vm.prank(outsider);
-        vm.expectRevert(EscrowVault.NotOwner.selector);
+        vm.expectRevert(EscrowVault.NotAuthorized.selector);
         vault.createEscrow(keccak256("x@example.com"), 100e6, false, 0, uint64(block.timestamp + 1 days));
+    }
+
+    function test_CreateEscrow_ExecutorCanCall() public {
+        // auto-execute.mjs's backend signer needs to be able to create
+        // escrows on the owner's behalf, since the owner isn't the one
+        // triggering execution -- only createEscrow's actual USDC
+        // transferFrom(owner, ...) needs the owner's allowance, not
+        // msg.sender itself being the owner.
+        _fundOwner(100e6);
+        vm.prank(executor);
+        uint256 escrowId = vault.createEscrow(
+            keccak256("x@example.com"), 100e6, false, 0, uint64(block.timestamp + 1 days)
+        );
+
+        assertEq(usdc.balanceOf(address(vault)), 100e6, "vault should hold the USDC even when executor calls");
+        assertEq(vault.getEscrow(escrowId).sender, owner, "escrow.sender should still be owner, not executor");
     }
 
     function test_CreateEscrow_RevertsIfExpiryInPast() public {
@@ -272,5 +289,31 @@ contract EscrowVaultTest is Test {
         vm.prank(outsider);
         vm.expectRevert(EscrowVault.NotOwner.selector);
         vault.setVerifier(address(0x9999));
+    }
+
+    // ── setExecutor ───────────────────────────────────────────────────
+
+    function test_SetExecutor_UpdatesAndOldExecutorLosesAccess() public {
+        address newExecutor = address(0x8888);
+        vm.prank(owner);
+        vault.setExecutor(newExecutor);
+        assertEq(vault.executor(), newExecutor);
+
+        _fundOwner(100e6);
+
+        // Old executor can no longer call createEscrow.
+        vm.prank(executor);
+        vm.expectRevert(EscrowVault.NotAuthorized.selector);
+        vault.createEscrow(keccak256("x@example.com"), 100e6, false, 0, uint64(block.timestamp + 1 days));
+
+        // New executor can.
+        vm.prank(newExecutor);
+        vault.createEscrow(keccak256("x@example.com"), 100e6, false, 0, uint64(block.timestamp + 1 days));
+    }
+
+    function test_SetExecutor_RevertsIfNotOwner() public {
+        vm.prank(outsider);
+        vm.expectRevert(EscrowVault.NotOwner.selector);
+        vault.setExecutor(address(0x9999));
     }
 }
